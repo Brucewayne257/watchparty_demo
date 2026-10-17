@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CineSync — Synchronized watch parties</title>
+<meta name="description" content="Create a room, invite friends and watch videos together in perfect sync with chat, polls and reactions." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" />
+<script src="https://cdn.tailwindcss.com/3.4.16"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      fontFamily: { display: ['Archivo','ui-sans-serif','system-ui','sans-serif'], sans: ['Archivo','ui-sans-serif','system-ui','sans-serif'], mono: ['JetBrains Mono','ui-monospace','monospace'] },
+      colors: { background:'var(--background)', foreground:'var(--foreground)', canvas:'var(--canvas)', muted:'var(--muted)', 'muted-foreground':'var(--muted-foreground)', border:'var(--border)', success:'var(--success)', destructive:'var(--destructive)' },
+      borderRadius: { DEFAULT:'0', sm:'0', md:'0', lg:'0' }
+    } }
+  }
+</script>
+<style>
+  :root { --background:#fff; --canvas:#f4f4f5; --foreground:#09090b; --muted:#f4f4f5; --muted-foreground:#71717a; --border:#e4e4e7; --success:#10b981; --destructive:#dc2626; }
+  * { border-color: var(--border); }
+  body { background:var(--canvas); color:var(--foreground); font-family:'Archivo',ui-sans-serif,system-ui,sans-serif; -webkit-font-smoothing:antialiased; margin:0; }
+  h1,h2,h3 { font-family:'Archivo',sans-serif; font-weight:900; letter-spacing:-0.035em; line-height:.92; }
+  :focus-visible { outline:2px solid var(--foreground); outline-offset:2px; }
+  button { background:none; border:0; color:inherit; font:inherit; cursor:pointer; }
+  .marquee-track { display:flex; width:max-content; animation:marquee 32s linear infinite; }
+  .cta { display:inline-flex; align-items:center; gap:.4rem; font-weight:800; text-transform:uppercase; letter-spacing:.02em; text-underline-offset:4px; cursor:pointer; }
+  .cta .arrow { transition:transform .2s; display:inline-block; }
+  .cta:hover { text-decoration:underline; } .cta:hover .arrow { transform:translateX(4px); }
+  .cta:active { opacity:.7; } .cta:disabled { opacity:.35; cursor:not-allowed; text-decoration:none; }
+  .pill { padding:.25rem .75rem; border:1px solid transparent; font-weight:700; font-size:.8rem; text-transform:uppercase; white-space:nowrap; cursor:pointer; }
+  .pill:hover { text-decoration:underline; }
+  .pill[data-active="true"] { background:var(--foreground); color:var(--background); text-decoration:none; }
+  .field { width:100%; background:var(--background); border:1px solid var(--border); padding:.6rem .75rem; font-size:.95rem; border-radius:0; }
+  .field:focus { outline:none; border-color:var(--foreground); }
+  .field[aria-invalid="true"] { border-color:var(--destructive); }
+  .float-up { animation:float-up 2.6s ease-out forwards; }
+  @keyframes marquee { from{transform:translateX(0)} to{transform:translateX(-50%)} }
+  @keyframes float-up { 0%{transform:translateY(0) scale(.6);opacity:0} 15%{transform:translateY(-20px) scale(1.2);opacity:1} 100%{transform:translateY(-260px) scale(1);opacity:0} }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useSyncExternalStore } = React;
+
+/* ---------- movies ---------- */
+const B = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/";
+const MOVIES = [
+  { id:"bbb", title:"Big Buck Bunny", year:2008, genres:["Animation","Comedy"], duration:"9:56", curated:"Staff Pick", src:B+"BigBuckBunny.mp4", blurb:"A giant rabbit takes revenge on three bullying rodents." },
+  { id:"ed", title:"Elephants Dream", year:2006, genres:["Animation","Sci-Fi"], duration:"10:53", src:B+"ElephantsDream.mp4", blurb:"Two men explore a surreal, endless machine." },
+  { id:"sintel", title:"Sintel", year:2010, genres:["Animation","Fantasy","Drama"], duration:"14:48", curated:"Staff Pick", src:B+"Sintel.mp4", blurb:"A lonely girl searches for her baby dragon." },
+  { id:"tos", title:"Tears of Steel", year:2012, genres:["Sci-Fi","Action"], duration:"12:14", curated:"Trending", src:B+"TearsOfSteel.mp4", blurb:"Warriors and scientists try to save the world from robots." },
+  { id:"blazes", title:"For Bigger Blazes", year:2013, genres:["Short","Action"], duration:"0:15", src:B+"ForBiggerBlazes.mp4", blurb:"Fifteen seconds of pure fire." },
+  { id:"escapes", title:"For Bigger Escapes", year:2013, genres:["Short","Adventure"], duration:"0:15", src:B+"ForBiggerEscapes.mp4", blurb:"A quick getaway to somewhere bigger." },
+  { id:"fun", title:"For Bigger Fun", year:2013, genres:["Short","Comedy"], duration:"1:00", curated:"Trending", src:B+"ForBiggerFun.mp4", blurb:"A minute of loud, colorful fun." },
+  { id:"joyrides", title:"For Bigger Joyrides", year:2013, genres:["Short","Adventure"], duration:"0:15", src:B+"ForBiggerJoyrides.mp4", blurb:"Hit the road for a short burst." },
+  { id:"meltdowns", title:"For Bigger Meltdowns", year:2013, genres:["Short","Comedy"], duration:"0:15", src:B+"ForBiggerMeltdowns.mp4", blurb:"When things go spectacularly wrong." },
+  { id:"subaru", title:"Outback on Street and Dirt", year:2014, genres:["Documentary","Cars"], duration:"9:54", src:B+"SubaruOutbackOnStreetAndDirt.mp4", blurb:"One wagon, two very different surfaces." },
+  { id:"gti", title:"Volkswagen GTI Review", year:2014, genres:["Documentary","Cars"], duration:"9:56", src:B+"VolkswagenGTIReview.mp4", blurb:"An honest take on a hot hatch." },
+  { id:"bullrun", title:"We Are Going On Bullrun", year:2014, genres:["Documentary","Adventure"], duration:"0:47", curated:"Trending", src:B+"WeAreGoingOnBullrun.mp4", blurb:"Gear up for the rally of a lifetime." },
+];
+const GENRES = Array.from(new Set(MOVIES.flatMap(m => m.genres))).sort();
+const getMovie = id => MOVIES.find(m => m.id === id) || MOVIES[0];
+function fuzzyScore(query, text) {
+  const q = query.toLowerCase().replace(/\s+/g, ""), t = text.toLowerCase();
+  if (!q) return 0;
+  let ti = 0, score = 0, streak = 0;
+  for (const ch of q) {
+    const idx = t.indexOf(ch, ti);
+    if (idx === -1) return -1;
+    streak = idx === ti ? streak + 1 : 0;
+    score += 1 + streak * 2 + (idx === 0 || t[idx-1] === " " ? 3 : 0);
+    ti = idx + 1;
+  }
+  return score;
+}
+function searchMovies(query, genre, curated) {
+  return MOVIES.map(m => ({ m, s: fuzzyScore(query, m.title + " " + m.genres.join(" ")) }))
+    .filter(({ m, s }) => s >= 0 && (!genre || m.genres.includes(genre)) && (!curated || m.curated === curated))
+    .sort((a, b) => b.s - a.s).map(({ m }) => m);
+}
+
+/* ---------- profile ---------- */
+const AVATARS = ["🦊","🐼","🐙","🦉","🐸","🦁","🐯","🐵"];
+const KEY = "cinesync:profile", EVT = "cinesync:profile-change";
+const uid = () => Math.random().toString(36).slice(2, 10);
+function readProfile() { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch { return null; } }
+function saveProfile(p) {
+  const full = { ...p, id: p.id || (readProfile() || {}).id || uid() };
+  localStorage.setItem(KEY, JSON.stringify(full));
+  window.dispatchEvent(new Event(EVT));
+  return full;
+}
+function signOut() { localStorage.removeItem(KEY); window.dispatchEvent(new Event(EVT)); }
+function useProfile() {
+  const [state, setState] = useState({ ready: false, profile: null });
+  useEffect(() => {
+    const sync = () => setState({ ready: true, profile: readProfile() });
+    sync(); window.addEventListener(EVT, sync);
+    return () => window.removeEventListener(EVT, sync);
+  }, []);
+  return state;
+}
+function validateName(name) {
+  const n = name.trim();
+  if (n.length < 2) return "Nickname needs at least 2 characters";
+  if (n.length > 16) return "Keep it under 16 characters";
+  if (!/^[\w .-]+$/.test(n)) return "Letters, numbers, spaces, . - _ only";
+  return null;
+}
+function validateCode(code) { return /^[A-Z0-9]{6}$/.test(code.trim().toUpperCase()) ? null : "Room codes are 6 letters/numbers"; }
+
+/* ---------- mock real-time room ---------- */
+const DRIFT_THRESHOLD_MS = 500, LATENCY_TARGET_P95_MS = 250;
+const masterTime = (p, now = Date.now()) => p.position + (p.playing ? (now - p.updatedAt) / 1000 : 0);
+function percentile(samples, q) {
+  if (!samples.length) return 0;
+  const s = [...samples].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.ceil(q * s.length) - 1)] || 0;
+}
+const needsCorrection = ms => Math.abs(ms) > DRIFT_THRESHOLD_MS;
+const BOTS = [{ name:"Mira", avatar:"🦉" }, { name:"Theo", avatar:"🐙" }, { name:"Juno", avatar:"🐸" }];
+const BOT_LINES = ["this scene 🔥","lol","wait rewind that","the music here is so good","who picked this? love it","popcorn break soon?","😂😂","ok I'm hooked"];
+const REACTION_EMOJIS = ["🔥","😂","😮","❤️","👏","🍿"];
+const lat = () => Math.round(20 + Math.random() * 80 + (Math.random() < 0.06 ? 90 : 0));
+function generateCode() { const c = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; return Array.from({ length: 6 }, () => c[Math.floor(Math.random() * c.length)]).join(""); }
+
+class Room {
+  constructor(code) {
+    this.listeners = new Set(); this.timer = null; this.dropRate = 0.03;
+    let saved = null; try { saved = localStorage.getItem(`cinesync:room:${code}`); } catch {}
+    if (saved) this.state = { ...JSON.parse(saved), reactions: [] };
+    else {
+      const bots = BOTS.map(b => ({ id:"bot-"+b.name.toLowerCase(), ...b, isBot:true, online:true, drift:0, latency:lat() }));
+      this.state = { code, hostId:"", participants:bots, playback:{ movieId:MOVIES[0].id, playing:false, position:0, updatedAt:Date.now() },
+        queue:["sintel","tos","fun"], chat:[], poll:null, reactions:[], telemetry:{ samples:[], corrections:0, errors:0, retries:0, localDrift:0, lastAction:"—" } };
+    }
+  }
+  subscribe = fn => {
+    this.listeners.add(fn);
+    if (!this.timer) this.timer = setInterval(() => this.tick(), 1000);
+    return () => { this.listeners.delete(fn); if (!this.listeners.size && this.timer) { clearInterval(this.timer); this.timer = null; } };
+  };
+  getSnapshot = () => this.state;
+  commit(patch) {
+    this.state = { ...this.state, ...patch };
+    const { reactions, ...persist } = this.state;
+    try { localStorage.setItem(`cinesync:room:${this.state.code}`, JSON.stringify(persist)); } catch {}
+    this.listeners.forEach(l => l());
+  }
+  tel(patch) { this.commit({ telemetry: { ...this.state.telemetry, ...patch } }); }
+  send(by, label, apply, attempt = 0) {
+    const up = lat();
+    if (Math.random() < this.dropRate && attempt < 3) {
+      this.tel({ errors: this.state.telemetry.errors + 1, retries: this.state.telemetry.retries + 1 });
+      setTimeout(() => this.send(by, label, apply, attempt + 1), 150); return;
+    }
+    setTimeout(() => {
+      apply();
+      const peers = this.state.participants.filter(p => p.id !== by && p.online);
+      const fresh = peers.map(() => up + lat());
+      const participants = this.state.participants.map(p => { const i = peers.indexOf(p); return i >= 0 ? { ...p, latency: fresh[i] ?? p.latency } : p; });
+      this.commit({ participants });
+      this.tel({ samples: [...this.state.telemetry.samples, ...fresh].slice(-200), lastAction: `${label} · ${Math.max(up, ...fresh)}ms` });
+    }, up);
+  }
+  nameOf(id) { const p = this.state.participants.find(p => p.id === id); return p ? p.name : "Someone"; }
+  sys(text) { return [...this.state.chat, { id:uid(), by:"system", text, ts:Date.now(), system:true }].slice(-150); }
+  isHost(id) { return this.state.hostId === id; }
+  join(p) {
+    const exists = this.state.participants.find(x => x.id === p.id);
+    const participants = exists
+      ? this.state.participants.map(x => x.id === p.id ? { ...x, name:p.name, avatar:p.avatar, online:true } : x)
+      : [...this.state.participants, { id:p.id, name:p.name, avatar:p.avatar, isBot:false, online:true, drift:0, latency:lat() }];
+    this.commit({ participants, hostId: this.state.hostId || p.id, chat: exists ? this.state.chat : this.sys(`${p.name} joined the room`) });
+  }
+  setOnline(id, online) {
+    this.commit({ participants: this.state.participants.map(p => p.id === id ? { ...p, online } : p), chat: this.sys(`${this.nameOf(id)} ${online ? "reconnected — snapped to master timeline" : "lost connection"}`) });
+  }
+  play(by) { this.send(by, "PLAY", () => { const pb = this.state.playback; if (!pb.playing) this.commit({ playback:{ ...pb, position:masterTime(pb), playing:true, updatedAt:Date.now() } }); }); }
+  pause(by) { this.send(by, "PAUSE", () => { const pb = this.state.playback; if (pb.playing) this.commit({ playback:{ ...pb, position:masterTime(pb), playing:false, updatedAt:Date.now() } }); }); }
+  seek(by, t) { this.send(by, `SEEK ${t.toFixed(1)}s`, () => this.commit({ playback:{ ...this.state.playback, position:Math.max(0, t), updatedAt:Date.now() } })); }
+  setMovie(by, movieId) { this.send(by, "LOAD", () => this.commit({ playback:{ movieId, playing:true, position:0, updatedAt:Date.now() }, chat:this.sys(`${this.nameOf(by)} started ${getMovie(movieId).title}`) })); }
+  playNext(by) { const [next, ...rest] = this.state.queue; if (!next) return; this.commit({ queue: rest }); this.setMovie(by, next); }
+  addToQueue(by, movieId) { this.send(by, "QUEUE+", () => this.commit({ queue:[...this.state.queue, movieId], chat:this.sys(`${this.nameOf(by)} queued ${getMovie(movieId).title}`) })); }
+  removeFromQueue(by, index) { this.send(by, "QUEUE-", () => this.commit({ queue: this.state.queue.filter((_, i) => i !== index) })); }
+  moveInQueue(by, index, dir) {
+    this.send(by, "QUEUE↕", () => {
+      const q = [...this.state.queue], j = index + dir;
+      if (j < 0 || j >= q.length) return;
+      [q[index], q[j]] = [q[j], q[index]]; this.commit({ queue: q });
+    });
+  }
+  chat(by, text) { this.send(by, "CHAT", () => this.commit({ chat:[...this.state.chat, { id:uid(), by, text, ts:Date.now() }].slice(-150) })); }
+  react(by, emoji) {
+    this.send(by, "REACT", () => {
+      const r = { id:uid(), emoji, x: 8 + Math.random() * 84 };
+      this.commit({ reactions: [...this.state.reactions, r].slice(-30) });
+      setTimeout(() => this.commit({ reactions: this.state.reactions.filter(x => x.id !== r.id) }), 2700);
+    });
+  }
+  transferHost(by, to) { if (!this.isHost(by)) return; this.send(by, "HOST→", () => this.commit({ hostId: to, chat: this.sys(`${this.nameOf(to)} is now the host`) })); }
+  startPoll(by, question, options) {
+    if (!this.isHost(by)) return;
+    this.send(by, "POLL", () => this.commit({ poll:{ id:uid(), question, open:true, options: options.map(label => ({ label, voters:[] })) }, chat:this.sys(`Poll: ${question}`) }));
+  }
+  vote(by, index) {
+    this.send(by, "VOTE", () => {
+      const poll = this.state.poll; if (!poll || !poll.open) return;
+      this.commit({ poll:{ ...poll, options: poll.options.map((o, i) => ({ ...o, voters: i === index ? [...o.voters.filter(v => v !== by), by] : o.voters.filter(v => v !== by) })) } });
+    });
+  }
+  closePoll(by) {
+    const poll = this.state.poll; if (!poll || !this.isHost(by)) return;
+    const winner = [...poll.options].sort((a, b) => b.voters.length - a.voters.length)[0];
+    this.send(by, "POLL✕", () => this.commit({ poll:{ ...poll, open:false }, chat:this.sys(`Poll closed — "${winner && winner.label}" wins`) }));
+  }
+  clearPoll(by) { if (this.isHost(by)) this.commit({ poll: null }); }
+  reportLocalDrift(ms, corrected) { this.tel({ localDrift: ms, corrections: this.state.telemetry.corrections + (corrected ? 1 : 0) }); }
+  tick() {
+    let corrections = 0;
+    const participants = this.state.participants.map(p => {
+      if (!p.isBot || !p.online) return p;
+      let drift = p.drift + (this.state.playback.playing ? Math.round(-70 + Math.random() * 170) : 0);
+      if (needsCorrection(drift)) { drift = Math.round(-40 + Math.random() * 80); corrections++; }
+      return { ...p, drift };
+    });
+    this.commit({ participants, telemetry:{ ...this.state.telemetry, corrections: this.state.telemetry.corrections + corrections } });
+    for (const b of participants.filter(p => p.isBot && p.online)) {
+      const r = Math.random();
+      if (r < 0.025) this.chat(b.id, BOT_LINES[Math.floor(Math.random() * BOT_LINES.length)]);
+      else if (r < 0.06 && this.state.playback.playing) this.react(b.id, REACTION_EMOJIS[Math.floor(Math.random() * REACTION_EMOJIS.length)]);
+      const poll = this.state.poll;
+      if (poll && poll.open && !poll.options.some(o => o.voters.includes(b.id)) && Math.random() < 0.25) this.vote(b.id, Math.floor(Math.random() * poll.options.length));
+    }
+  }
+}
+const rooms = new Map();
+function getRoom(code) { const c = code.toUpperCase(); if (!rooms.has(c)) rooms.set(c, new Room(c)); return rooms.get(c); }
+
+/* ---------- hash router ---------- */
+function useRoute() {
+  const parse = () => (location.hash.replace(/^#/, "") || "/");
+  const [r, setR] = useState(parse);
+  useEffect(() => { const f = () => setR(parse()); window.addEventListener("hashchange", f); return () => window.removeEventListener("hashchange", f); }, []);
+  return r;
+}
+const navigate = path => { location.hash = path; };
+const Link = ({ to, className, children }) => <a href={"#" + to} className={className}>{children}</a>;
+
+/* ---------- shell ---------- */
+const TICKER = ["WATCH TOGETHER, IN SYNC","DRIFT CORRECTION < 500MS","P95 LATENCY TARGET ≤ 250MS","NEW: GROUP POLLS","LATE JOIN → INSTANT CATCH-UP","12 FILMS IN THE LIBRARY"];
+function Shell({ children, route }) {
+  const { profile } = useProfile();
+  const nav = (p, exact) => "text-sm font-bold uppercase hover:underline" + ((exact ? route === p : route.startsWith(p)) ? " underline" : "");
+  return (
+    <div className="min-h-screen bg-canvas">
+      <header className="border-b border-foreground bg-background">
+        <nav className="flex items-center gap-6 px-4 py-3 md:px-6">
+          <Link to="/" className="font-display text-xl font-black tracking-tighter">CINESYNC✱</Link>
+          <Link to="/" className={nav("/", true)}>Rooms</Link>
+          <Link to="/library" className={nav("/library")}>Library</Link>
+          <div className="ml-auto flex items-center gap-3 text-sm">
+            {profile && <><span className="font-mono text-xs">{profile.avatar} {profile.name}</span>
+              <button onClick={signOut} className="cta text-xs">Sign out <span className="arrow">→</span></button></>}
+          </div>
+        </nav>
+        <div className="overflow-hidden border-t border-foreground bg-foreground py-2 text-background">
+          <div className="marquee-track">
+            {[0,1].map(k => <div key={k} className="flex shrink-0" aria-hidden={k === 1}>
+              {TICKER.map(t => <span key={t} className="px-4 font-mono text-xs font-bold uppercase tracking-wider">{t} <span className="pl-4">✱</span></span>)}
+            </div>)}
+          </div>
+        </div>
+      </header>
+      {children}
+    </div>
+  );
+}
+
+function ProfileFields({ initial, onDone, cta }) {
+  const [name, setName] = useState(initial ? initial.name : "");
+  const [avatar, setAvatar] = useState(initial ? initial.avatar : AVATARS[0]);
+  const [touched, setTouched] = useState(false);
+  const err = validateName(name);
+  return (
+    <form className="space-y-4" onSubmit={e => { e.preventDefault(); setTouched(true); if (!err) onDone(saveProfile({ name: name.trim(), avatar })); }}>
+      <label className="block">
+        <span className="mb-1 block font-mono text-xs uppercase text-muted-foreground">Nickname</span>
+        <input className="field" value={name} onChange={e => setName(e.target.value)} onBlur={() => setTouched(true)} aria-invalid={touched && !!err} placeholder="e.g. Popcorn Pete" />
+        {touched && err && <span className="mt-1 block text-xs text-destructive">{err}</span>}
+      </label>
+      <div>
+        <span className="mb-1 block font-mono text-xs uppercase text-muted-foreground">Avatar</span>
+        <div className="flex flex-wrap gap-0 border border-border">
+          {AVATARS.map(a => <button type="button" key={a} onClick={() => setAvatar(a)} aria-pressed={avatar === a}
+            className={`h-11 w-11 border-r border-border text-xl last:border-r-0 ${avatar === a ? "bg-foreground" : "bg-background hover:bg-muted"}`}>{a}</button>)}
+        </div>
+      </div>
+      <button type="submit" className="cta text-lg">{cta} <span className="arrow">→</span></button>
+    </form>
+  );
+}
+
+function MovieBrowser({ onQueue, onPlay }) {
+  const [q, setQ] = useState(""), [genre, setGenre] = useState(null), [curated, setCurated] = useState(null), [added, setAdded] = useState(null);
+  const results = searchMovies(q, genre, curated);
+  return (
+    <div>
+      <input className="field text-lg" placeholder="Fuzzy search — try “sntl” or “bunny”" value={q} onChange={e => setQ(e.target.value)} />
+      <div className="mt-3 flex gap-1 overflow-x-auto border-b border-border pb-2">
+        {[null, "Staff Pick", "Trending"].map(c => <button key={c || "all"} className="pill" data-active={curated === c} onClick={() => setCurated(c)}>{c || "Everything"}</button>)}
+      </div>
+      <div className="flex gap-1 overflow-x-auto border-b border-border py-2">
+        <button className="pill" data-active={genre === null} onClick={() => setGenre(null)}>All genres</button>
+        {GENRES.map(g => <button key={g} className="pill" data-active={genre === g} onClick={() => setGenre(g)}>{g}</button>)}
+      </div>
+      <p className="mt-3 font-mono text-xs text-muted-foreground">{results.length} RESULTS</p>
+      <ul className="mt-2 grid border-l border-t border-border sm:grid-cols-2 xl:grid-cols-3">
+        {results.map(m => (
+          <li key={m.id} className="flex flex-col border-b border-r border-border bg-background p-4">
+            <div className="flex items-start justify-between font-mono text-[11px] uppercase text-muted-foreground">
+              <span>{m.year} / {m.duration}</span>
+              {m.curated && <span className="border border-foreground px-1 text-foreground">{m.curated}</span>}
+            </div>
+            <h3 className="mt-3 text-2xl uppercase">{m.title}</h3>
+            <p className="mt-2 flex-1 text-sm text-muted-foreground">{m.blurb}</p>
+            <p className="mt-2 font-mono text-[11px] uppercase">{m.genres.join(" · ")}</p>
+            <div className="mt-3 flex gap-5 text-sm">
+              {onQueue && <button className="cta" onClick={() => { onQueue(m.id); setAdded(m.id); }}>{added === m.id ? "Queued ✓" : "Queue"} <span className="arrow">→</span></button>}
+              {onPlay && <button className="cta" onClick={() => onPlay(m.id)}>Play now <span className="arrow">→</span></button>}
+            </div>
+          </li>
+        ))}
+        {!results.length && <li className="border-b border-r border-border bg-background p-6 text-sm">Nothing matches. Clear a filter.</li>}
+      </ul>
+    </div>
+  );
+}
+
+/* ---------- pages ---------- */
+function Home({ route }) {
+  const { ready, profile } = useProfile();
+  const [code, setCode] = useState(""), [touched, setTouched] = useState(false);
+  const codeErr = validateCode(code);
+  const create = () => { const c = generateCode(); getRoom(c); navigate("/room/" + c); };
+  return (
+    <Shell route={route}>
+      <main className="grid border-b border-foreground bg-background lg:grid-cols-[1.4fr_1fr]">
+        <section className="border-b border-foreground p-6 md:p-12 lg:border-b-0 lg:border-r">
+          <p className="font-mono text-xs uppercase text-muted-foreground">Watch-party platform / v1</p>
+          <h1 className="mt-6 text-6xl uppercase md:text-8xl xl:text-9xl">Watch<br />together.<br />In sync.</h1>
+          <dl className="mt-12 grid grid-cols-3 border-t border-foreground font-mono text-xs">
+            {[["<500ms","Drift tolerance"],["≤250ms","P95 propagation"],["∞","Late joins"]].map(([v, l]) => (
+              <div key={l} className="border-r border-border py-4 pr-4 last:border-r-0 [&:not(:first-child)]:pl-4">
+                <dt className="text-muted-foreground uppercase">{l}</dt>
+                <dd className="mt-1 font-display text-2xl font-black md:text-3xl">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+        <section className="divide-y divide-foreground">
+          <div className="p-6 md:p-10">
+            <h2 className="text-3xl uppercase">01 — You</h2>
+            <div className="mt-5">
+              {!ready ? null : profile ? (
+                <div className="flex items-center justify-between border border-border p-4">
+                  <span className="text-lg font-bold">{profile.avatar} {profile.name}</span>
+                  <span className="font-mono text-xs text-success">● SIGNED IN</span>
+                </div>
+              ) : <ProfileFields onDone={() => {}} cta="Save profile" />}
+            </div>
+          </div>
+          <div className="p-6 md:p-10">
+            <h2 className="text-3xl uppercase">02 — Start a room</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Get a fresh room code and an invite link to share.</p>
+            <button disabled={!profile} onClick={create} className="cta mt-4 text-lg">Create room <span className="arrow">→</span></button>
+          </div>
+          <div className="p-6 md:p-10">
+            <h2 className="text-3xl uppercase">03 — Join by code</h2>
+            <form className="mt-4 flex gap-0" onSubmit={e => { e.preventDefault(); setTouched(true); if (!codeErr) navigate("/room/" + code.trim().toUpperCase()); }}>
+              <input className="field font-mono uppercase tracking-widest" maxLength={6} value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="ABC123" aria-invalid={touched && !!codeErr} />
+              <button type="submit" className="cta shrink-0 border border-l-0 border-foreground bg-foreground px-4 text-background">Join <span className="arrow">→</span></button>
+            </form>
+            {touched && codeErr && <p className="mt-1 text-xs text-destructive">{codeErr}</p>}
+          </div>
+        </section>
+      </main>
+    </Shell>
+  );
+}
+
+function Library({ route }) {
+  const { profile } = useProfile();
+  const [last, setLast] = useState(null);
+  useEffect(() => setLast(localStorage.getItem("cinesync:last-room")), []);
+  return (
+    <Shell route={route}>
+      <main className="mx-auto max-w-6xl border-x border-border bg-background p-6 md:p-10">
+        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-foreground pb-6">
+          <h1 className="text-6xl uppercase md:text-7xl">Library</h1>
+          {last ? <Link to={"/room/" + last} className="cta">Back to room {last} <span className="arrow">→</span></Link>
+            : <span className="font-mono text-xs text-muted-foreground">Join a room to queue films</span>}
+        </div>
+        <div className="mt-6"><MovieBrowser onQueue={last && profile ? id => getRoom(last).addToQueue(profile.id, id) : undefined} /></div>
+      </main>
+    </Shell>
+  );
+}
+
+const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const useRoom = room => useSyncExternalStore(room.subscribe, room.getSnapshot, room.getSnapshot);
+
+function RoomPage({ code, route }) {
+  const { ready, profile } = useProfile();
+  const [room, setRoom] = useState(null);
+  useEffect(() => { setRoom(getRoom(code)); localStorage.setItem("cinesync:last-room", code.toUpperCase()); document.title = `Room ${code} — CineSync`; }, [code]);
+  if (!ready || !room) return <Shell route={route}><div className="p-10 font-mono text-sm">CONNECTING…</div></Shell>;
+  if (!profile) return (
+    <Shell route={route}>
+      <main className="mx-auto max-w-md border-x border-b border-foreground bg-background p-8">
+        <p className="font-mono text-xs uppercase text-muted-foreground">You're invited to</p>
+        <h1 className="mt-2 text-5xl uppercase">Room {code.toUpperCase()}</h1>
+        <div className="mt-6"><ProfileFields onDone={() => {}} cta="Join room" /></div>
+      </main>
+    </Shell>
+  );
+  return <Theater room={room} me={profile} route={route} />;
+}
+
+function Theater({ room, me, route }) {
+  const s = useRoom(room);
+  const [offline, setOffline] = useState(false), [telemetry, setTelemetry] = useState(false);
+  const [tab, setTab] = useState("chat"), [browse, setBrowse] = useState(false), [copied, setCopied] = useState(false);
+  useEffect(() => { room.join(me); }, [room, me]);
+  const isHost = s.hostId === me.id, movie = getMovie(s.playback.movieId);
+  const toggleNet = () => { room.setOnline(me.id, offline); setOffline(!offline); };
+  const copy = () => { navigator.clipboard && navigator.clipboard.writeText(location.href); setCopied(true); setTimeout(() => setCopied(false), 1500); };
+  return (
+    <Shell route={route}>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-foreground bg-background px-4 py-3 md:px-6">
+        <h1 className="text-2xl uppercase md:text-3xl">Room {s.code}</h1>
+        <button onClick={copy} className="cta text-xs">{copied ? "Link copied ✓" : "Copy invite link"} <span className="arrow">→</span></button>
+        <div className="ml-auto flex flex-wrap gap-1">
+          <button className="pill" data-active={offline} onClick={toggleNet}>{offline ? "⏻ Reconnect" : "⚡ Simulate drop"}</button>
+          <button className="pill" data-active={telemetry} onClick={() => setTelemetry(!telemetry)}>Telemetry</button>
+        </div>
+      </div>
+      <div className="grid lg:grid-cols-[1fr_380px]">
+        <section className="border-b border-foreground bg-background lg:border-b-0 lg:border-r">
+          <Player room={room} me={me} offline={offline} showTelemetry={telemetry} />
+          <div className="flex flex-wrap items-end justify-between gap-4 border-t border-foreground p-4 md:p-6">
+            <div>
+              <p className="font-mono text-xs uppercase text-muted-foreground">Now playing · {movie.year} · {movie.genres.join(" / ")}</p>
+              <h2 className="mt-1 text-4xl uppercase md:text-5xl">{movie.title}</h2>
+            </div>
+            <div className="flex gap-5">
+              <button className="cta" disabled={!s.queue.length} onClick={() => room.playNext(me.id)}>Play next <span className="arrow">→</span></button>
+              <button className="cta" onClick={() => setBrowse(!browse)}>{browse ? "Close library" : "Browse library"} <span className="arrow">→</span></button>
+            </div>
+          </div>
+          {browse && <div className="border-t border-foreground p-4 md:p-6"><MovieBrowser onQueue={id => room.addToQueue(me.id, id)} onPlay={id => room.setMovie(me.id, id)} /></div>}
+        </section>
+        <aside className="flex flex-col bg-background lg:h-[calc(100vh-110px)] lg:sticky lg:top-0">
+          <div className="flex border-b border-foreground">
+            {["chat","queue","poll","people"].map(t => (
+              <button key={t} onClick={() => setTab(t)} className={`flex-1 border-r border-border py-3 text-xs font-black uppercase last:border-r-0 ${tab === t ? "bg-foreground text-background" : "hover:underline"}`}>
+                {t}{t === "people" ? ` ${s.participants.filter(p => p.online).length}` : t === "queue" ? ` ${s.queue.length}` : t === "poll" && s.poll && s.poll.open ? " ●" : ""}
+              </button>
+            ))}
+          </div>
+          <div className="min-h-[420px] flex-1 overflow-hidden">
+            {tab === "chat" && <Chat room={room} me={me} />}
+            {tab === "queue" && <Queue room={room} me={me} />}
+            {tab === "poll" && <PollPanel room={room} me={me} isHost={isHost} />}
+            {tab === "people" && <People room={room} me={me} isHost={isHost} />}
+          </div>
+        </aside>
+      </div>
+    </Shell>
+  );
+}
+
+function Player({ room, me, offline, showTelemetry }) {
+  const s = useRoom(room), v = useRef(null);
+  const [now, setNow] = useState(0), [muted, setMuted] = useState(true), [blocked, setBlocked] = useState(false), [duration, setDuration] = useState(0);
+  const pb = s.playback, src = getMovie(pb.movieId).src;
+  useEffect(() => {
+    const el = v.current;
+    if (!el || offline) { el && el.pause(); return; }
+    const target = masterTime(pb);
+    if (Math.abs(el.currentTime - target) > DRIFT_THRESHOLD_MS / 1000) el.currentTime = target;
+    if (pb.playing && el.paused) el.play().then(() => setBlocked(false)).catch(() => setBlocked(true));
+    if (!pb.playing && !el.paused) el.pause();
+  }, [pb, offline, src]);
+  useEffect(() => {
+    const id = setInterval(() => {
+      const el = v.current; if (!el) return;
+      setNow(el.currentTime);
+      if (offline || el.readyState < 2) return;
+      const p = room.state.playback;
+      const drift = Math.round((el.currentTime - masterTime(p)) * 1000);
+      const fix = needsCorrection(drift);
+      if (fix) el.currentTime = masterTime(p);
+      room.reportLocalDrift(fix ? 0 : drift, fix);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [room, offline]);
+  const t = offline ? now : Math.min(masterTime(pb), duration || Infinity);
+  const tel = s.telemetry, p95 = percentile(tel.samples, 0.95);
+  return (
+    <div className="relative bg-foreground">
+      <video ref={v} src={src} muted={muted} playsInline className="aspect-video w-full" preload="auto"
+        onLoadedMetadata={e => setDuration(e.currentTarget.duration)}
+        onEnded={() => { if (s.hostId === me.id) s.queue.length ? room.playNext(me.id) : room.pause(me.id); }} />
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {s.reactions.map(r => <span key={r.id} className="float-up absolute bottom-16 text-4xl" style={{ left: `${r.x}%` }}>{r.emoji}</span>)}
+      </div>
+      {blocked && !offline && (
+        <button onClick={() => { setMuted(false); v.current && v.current.play().then(() => setBlocked(false)); }} className="absolute inset-0 flex items-center justify-center bg-foreground/80 text-background">
+          <span className="cta text-2xl">Tap to join playback <span className="arrow">→</span></span>
+        </button>
+      )}
+      {offline && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-foreground/85 text-background">
+          <p className="mt-3 text-2xl font-black uppercase">Connection lost</p>
+          <p className="font-mono text-xs">Reconnect to snap back to {fmt(masterTime(pb))}</p>
+        </div>
+      )}
+      {showTelemetry && (
+        <div className="absolute right-3 top-3 w-64 border border-foreground bg-background p-3 font-mono text-[11px]">
+          <p className="mb-2 font-black uppercase">Developer telemetry</p>
+          <Row k="p50 / p95" v={`${percentile(tel.samples, 0.5)} / ${p95}ms`} bad={p95 > LATENCY_TARGET_P95_MS} />
+          <Row k="target p95" v={`≤ ${LATENCY_TARGET_P95_MS}ms`} />
+          <Row k="your drift" v={`${tel.localDrift > 0 ? "+" : ""}${tel.localDrift}ms`} bad={Math.abs(tel.localDrift) > 250} />
+          <Row k="corrections" v={tel.corrections} />
+          <Row k="dropped pkts" v={tel.errors} bad={tel.errors > 0} />
+          <Row k="retries" v={tel.retries} />
+          <Row k="samples" v={tel.samples.length} />
+          <Row k="last action" v={tel.lastAction} />
+          <div className="mt-2 border-t border-border pt-2">
+            {s.participants.filter(p => p.id !== me.id).map(p => <Row key={p.id} k={`${p.avatar} ${p.name}`} v={p.online ? `${p.drift}ms · ${p.latency}ms rtt` : "offline"} bad={!p.online || Math.abs(p.drift) > 350} />)}
+          </div>
+        </div>
+      )}
+      <div className="flex items-center gap-3 border-t border-foreground bg-background px-3 py-2">
+        <button aria-label={pb.playing ? "Pause" : "Play"} disabled={offline} onClick={() => pb.playing ? room.pause(me.id) : room.play(me.id)} className="flex h-9 w-9 items-center justify-center border border-foreground hover:bg-foreground hover:text-background disabled:opacity-30">{pb.playing ? "❚❚" : "▶"}</button>
+        <span className="w-24 font-mono text-xs">{fmt(t)} / {fmt(duration)}</span>
+        <input type="range" min={0} max={duration || 1} step={0.5} value={t} disabled={offline} onChange={e => room.seek(me.id, Number(e.target.value))} className="flex-1 accent-black" aria-label="Seek" />
+        <button aria-label="Mute" onClick={() => setMuted(!muted)} className="p-1">{muted ? "🔇" : "🔊"}</button>
+        <div className="hidden gap-0 border border-border sm:flex">
+          {REACTION_EMOJIS.map(e => <button key={e} onClick={() => room.react(me.id, e)} className="h-8 w-8 border-r border-border text-base last:border-r-0 hover:bg-muted active:scale-90">{e}</button>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+const Row = ({ k, v, bad }) => <div className="flex justify-between gap-2 py-0.5"><span className="truncate text-muted-foreground uppercase">{k}</span><span className={bad ? "text-destructive" : ""}>{v}</span></div>;
+
+function Chat({ room, me }) {
+  const s = useRoom(room), [text, setText] = useState(""), end = useRef(null);
+  useEffect(() => { end.current && end.current.scrollIntoView({ block: "end" }); }, [s.chat.length]);
+  const who = id => s.participants.find(p => p.id === id);
+  return (
+    <div className="flex h-full max-h-[600px] flex-col lg:max-h-none">
+      <div className="flex-1 divide-y divide-border overflow-y-auto">
+        {!s.chat.length && <p className="p-4 text-sm text-muted-foreground">Say hi to the room.</p>}
+        {s.chat.map(m => m.system
+          ? <p key={m.id} className="px-4 py-2 font-mono text-[11px] uppercase text-muted-foreground">✱ {m.text}</p>
+          : <div key={m.id} className="px-4 py-2 text-sm">
+              <span className="font-black">{who(m.by) && who(m.by).avatar} {who(m.by) ? who(m.by).name : "?"}{m.by === s.hostId && " ♛"}</span>
+              <p className={m.by === me.id ? "font-medium" : ""}>{m.text}</p>
+            </div>)}
+        <div ref={end} />
+      </div>
+      <form className="flex border-t border-foreground" onSubmit={e => { e.preventDefault(); if (text.trim()) { room.chat(me.id, text.trim().slice(0, 300)); setText(""); } }}>
+        <input className="field border-0" value={text} onChange={e => setText(e.target.value)} placeholder="Message the room…" maxLength={300} />
+        <button className="cta border-l border-foreground px-4 text-sm" disabled={!text.trim()}>Send <span className="arrow">→</span></button>
+      </form>
+    </div>
+  );
+}
+
+function Queue({ room, me }) {
+  const s = useRoom(room), [pick, setPick] = useState(MOVIES[1].id);
+  return (
+    <div className="h-full overflow-y-auto">
+      <p className="border-b border-border px-4 py-2 font-mono text-[11px] uppercase text-muted-foreground">Up next · anyone can add</p>
+      <ol className="divide-y divide-border">
+        {s.queue.map((id, i) => (
+          <li key={`${id}-${i}`} className="flex items-center gap-3 px-4 py-3">
+            <span className="font-mono text-xs text-muted-foreground">{String(i + 1).padStart(2, "0")}</span>
+            <span className="flex-1 text-sm font-bold uppercase">{getMovie(id).title}</span>
+            <button aria-label="Move up" onClick={() => room.moveInQueue(me.id, i, -1)}>▲</button>
+            <button aria-label="Move down" onClick={() => room.moveInQueue(me.id, i, 1)}>▼</button>
+            <button aria-label="Remove" onClick={() => room.removeFromQueue(me.id, i)}>✕</button>
+          </li>
+        ))}
+        {!s.queue.length && <li className="px-4 py-3 text-sm text-muted-foreground">Queue is empty.</li>}
+      </ol>
+      <div className="flex border-y border-foreground">
+        <select className="field border-0" value={pick} onChange={e => setPick(e.target.value)}>{MOVIES.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select>
+        <button className="cta border-l border-foreground px-4 text-sm" onClick={() => room.addToQueue(me.id, pick)}>Add <span className="arrow">→</span></button>
+      </div>
+      {s.queue.length > 0 && <button className="cta m-4 text-sm" onClick={() => room.playNext(me.id)}>Skip to next <span className="arrow">→</span></button>}
+    </div>
+  );
+}
+
+function PollPanel({ room, me, isHost }) {
+  const s = useRoom(room), [q, setQ] = useState("What should we watch next?"), [opts, setOpts] = useState(""), [err, setErr] = useState(null);
+  const poll = s.poll, suggest = s.queue.slice(0, 4).map(id => getMovie(id).title).join(", ");
+  const total = poll ? poll.options.reduce((a, o) => a + o.voters.length, 0) : 0;
+  return (
+    <div className="h-full overflow-y-auto p-4">
+      {poll && (
+        <div className="border border-foreground p-4">
+          <p className="font-mono text-[11px] uppercase text-muted-foreground">{poll.open ? "● Live poll" : "Closed"} · {total} votes</p>
+          <h3 className="mt-1 text-xl uppercase">{poll.question}</h3>
+          <ul className="mt-3 space-y-2">
+            {poll.options.map((o, i) => {
+              const pct = total ? Math.round((o.voters.length / total) * 100) : 0, mine = o.voters.includes(me.id);
+              return (
+                <li key={i}>
+                  <button disabled={!poll.open} onClick={() => room.vote(me.id, i)} className={`relative w-full border p-2 text-left text-sm ${mine ? "border-foreground" : "border-border hover:border-foreground"}`}>
+                    <span className="absolute inset-y-0 left-0 bg-muted transition-all duration-500" style={{ width: `${pct}%` }} />
+                    <span className="relative flex justify-between font-bold"><span>{mine && "✓ "}{o.label}</span><span className="font-mono">{pct}%</span></span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {isHost && <div className="mt-3 flex gap-4 text-sm">
+            {poll.open ? <button className="cta" onClick={() => room.closePoll(me.id)}>Close poll <span className="arrow">→</span></button>
+              : <button className="cta" onClick={() => room.clearPoll(me.id)}>New poll <span className="arrow">→</span></button>}
+          </div>}
+        </div>
+      )}
+      {!poll && !isHost && <p className="text-sm text-muted-foreground">Only the host can start a poll. Hang tight.</p>}
+      {!poll && isHost && (
+        <form className="space-y-3" onSubmit={e => {
+          e.preventDefault();
+          const list = (opts || suggest).split(",").map(x => x.trim()).filter(Boolean);
+          if (q.trim().length < 3) return setErr("Question is too short");
+          if (list.length < 2) return setErr("Add at least 2 comma-separated options");
+          setErr(null); room.startPoll(me.id, q.trim(), list.slice(0, 6));
+        }}>
+          <h3 className="text-xl uppercase">Start a poll</h3>
+          <input className="field" value={q} onChange={e => setQ(e.target.value)} />
+          <input className="field" value={opts} onChange={e => setOpts(e.target.value)} placeholder={suggest || "Option A, Option B"} />
+          {err && <p className="text-xs text-destructive">{err}</p>}
+          <button className="cta">Launch poll <span className="arrow">→</span></button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function People({ room, me, isHost }) {
+  const s = useRoom(room);
+  return (
+    <ul className="h-full divide-y divide-border overflow-y-auto">
+      {s.participants.map(p => (
+        <li key={p.id} className="flex items-center gap-3 px-4 py-3">
+          <span className="text-2xl">{p.avatar}</span>
+          <div className="flex-1">
+            <p className="flex items-center gap-1 text-sm font-black uppercase">{p.name}{p.id === me.id && " (you)"}{p.id === s.hostId && " ♛"}</p>
+            <p className="font-mono text-[11px] text-muted-foreground">
+              <span className={p.online ? "text-success" : "text-destructive"}>●</span> {p.online ? "IN SYNC" : "OFFLINE"} · {p.latency}ms {p.isBot && "· SIM PEER"}
+            </p>
+          </div>
+          {isHost && p.id !== me.id && p.online && <button className="cta text-xs" onClick={() => room.transferHost(me.id, p.id)}>Make host <span className="arrow">→</span></button>}
+        </li>
+      ))}
+      <li className="px-4 py-3"><Link to="/" className="cta text-xs">Leave room <span className="arrow">→</span></Link></li>
+    </ul>
+  );
+}
+
+function App() {
+  const route = useRoute();
+  useEffect(() => { if (!route.startsWith("/room/")) document.title = route === "/library" ? "Library — CineSync" : "CineSync — Synchronized watch parties"; }, [route]);
+  const m = route.match(/^\/room\/([A-Za-z0-9]+)/);
+  if (m) return <RoomPage key={m[1].toUpperCase()} code={m[1].toUpperCase()} route={route} />;
+  if (route.startsWith("/library")) return <Library route={route} />;
+  return <Home route={route} />;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
